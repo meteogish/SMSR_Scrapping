@@ -1,0 +1,6 @@
+**/bin
+**/obj
+**/data
+**/*.xlsx
+.vs
+.ionide
