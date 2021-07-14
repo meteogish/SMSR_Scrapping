@@ -4,6 +4,8 @@ open System
 open FSharp.Data
 open System.IO
 open OfficeOpenXml
+open System.Drawing
+open OfficeOpenXml.Style
 
 type DryLandCharacteristic = {
     CropSpecies: string;
@@ -105,7 +107,19 @@ let writeToFile (header: Set<string * string>, powiats: PowiatDryLandCharacteris
             |> Seq.iteri (fun i row ->
                 row
                 |> Seq.iteri (fun k value ->
-                    ws.Cells.[iR + i,iC + k].Value <- value))
+                    let cell = ws.Cells.[iR + i,iC + k]
+                    cell.Value <- value
+                    if value.Equals("+") then
+                        cell.Style.Fill.PatternType <- ExcelFillStyle.Solid
+                        cell.Style.Fill.BackgroundColor.SetColor(Color.Red)
+                        ()
+                    else if row |> Seq.length = 1 then 
+                        cell.Style.Font.Bold <- true;
+                        cell.Style.Fill.PatternType <- ExcelFillStyle.Solid
+                        cell.Style.Fill.BackgroundColor.SetColor(Color.LightSeaGreen)
+                        
+                    else 
+                        ()))
     let mapHeaer = header |> Seq.mapi (fun i h -> (h, i)) |> Map.ofSeq
 
     header |> Seq.iteri (fun iC headVals -> 
