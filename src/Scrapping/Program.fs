@@ -38,44 +38,60 @@ let getGminasInPowiat powId =
         |> Seq.map (fun cs -> (cs.Attribute("value").Value(), cs.InnerText()))
         |> Seq.filter (fun (id, _) -> id <> "-")
         
-let getGminaDryLandCharacteristics ((gminaId, gminaName)) = 
-    let take = 5
+let getGminaDryLandCharacteristics column dryLandHappened ((gminaId, gminaName)) = 
     printfn "Getting gmina: %s, %s" gminaId gminaName
     let html = DryLandHtml.Load(sprintf "https://susza.iung.pulawy.pl/wykazy/2021,%s/" gminaId)
-    let t =
-        html.Html.CssSelect("table.tab-gmina tbody")
-        |> Seq.take 4
-        |> Seq.map (fun tBody -> 
-                let desc = tBody.CssSelect("tr") |> List.ofSeq
-                
-                desc
-                |> List.map (fun tr -> 
-                    let tds = tr.CssSelect("td")
-                    let col = tr.CssSelect("td") |> List.skip take |> List.head |> (fun h -> h.InnerText())
-                    { CropSpecies = tds.Head.InnerText(); IsDryHappened = col.Equals("+") })
-            )
-        |> List.ofSeq
-        |> List.zip [ "Kategoria gleby I"; "Kategoria gleby II"; "Kategoria gleby III"; "Kategoria gleby IV" ]
+    
+    let convertGminaCharacteristics (set, chSoFar) (categoryName, tBody : HtmlNode) =
+        let convertRow (set, soFar) (tr: HtmlNode) =
+            let tds = tr.CssSelect("td")
+            let isDry = tds |> List.skip column |> List.head |> (fun h -> h.InnerText().Equals("+"))
+            let char = { CropSpecies = tds.Head.InnerText(); IsDryHappened = isDry }
+            
+            if isDry then 
+                (set |> Set.add (categoryName, char.CropSpecies), char :: soFar)
+            else 
+                (set, char :: soFar) 
         
-    //printfn "%A" t
-       
-    {
-        id = gminaId;
-        name = gminaName;
-        characteristics = t
-    } 
+        let (newSet, newChars) = tBody.CssSelect("tr") |> Seq.fold convertRow (set, [])
+        (newSet, (categoryName, newChars) :: chSoFar)
 
-let load () =
+    let zipped = 
+        html.Html.CssSelect("table.tab-gmina tbody")
+        |> Seq.zip [ "Kategoria gleby I"; "Kategoria gleby II"; "Kategoria gleby III"; "Kategoria gleby IV" ]
+
+    let (newDryLandSet, chars) =
+        zipped |> Seq.fold convertGminaCharacteristics (dryLandHappened, [])
+       
+    (newDryLandSet, 
+        {
+            id = gminaId;
+            name = gminaName;
+            characteristics = chars |> List.rev
+        })
+
+let loadPowiats column =
     let powiatsList = 
         DryLandHtml.Load("https://susza.iung.pulawy.pl/wykazy/2021,1014/").Lists.Html.CssSelect "select#sel-pow > option" 
         |> Seq.map (fun cs -> (cs.Attribute("value").Value(), cs.InnerText()))
         |> Seq.filter (fun (id, _) -> id <> "-")
+       
+    let convertPowiat (dryHappened, powiatsSoFar) (powiatId, powiatName) =
+        let (fulFilledDryHappened, convertedGminas) = 
+            getGminasInPowiat powiatId 
+            |> Seq.fold (fun (drySoFar, convSoFar) gm ->  
+                let (newSet, gmChars) = getGminaDryLandCharacteristics column drySoFar gm
+                (newSet, gmChars :: convSoFar)) (dryHappened, [])
     
-    let allGminasPerPowiat = 
-        powiatsList
-        |> Seq.map (fun (powiatId, powiatName) -> { id = powiatId; name = powiatName; gminas = getGminasInPowiat powiatId |> Seq.map getGminaDryLandCharacteristics |> List.ofSeq })
-
-    allGminasPerPowiat
+        (fulFilledDryHappened,
+            { 
+                id = powiatId; 
+                name = powiatName; 
+                gminas = convertedGminas |> List.rev;// |> List.sortBy (fun gm -> gm.name);
+            } :: powiatsSoFar)
+    
+    let (set, convertedPowiats)  = powiatsList |> Seq.fold convertPowiat (Set.empty, [])
+    (set, convertedPowiats |> List.rev)
 
 let transformPowiat (powiats: PowiatDryLandCharacteristic list) =
     let folder map (powiat: PowiatDryLandCharacteristic) = 
@@ -137,43 +153,19 @@ let writeToFile (header: Set<string * string>, powiats: PowiatDryLandCharacteris
                 )
     r |> printfn "rawData = %A"
     writeData 3 1 r
-    //write headers and data
-    // match headers with
-    // | Some h ->
-    //     h |> Seq.iteri (fun k value ->
-    //         ws.Cells.[startRow,startCol + k].Value <- value) //write header
-    //     writeData (startRow + 1) startCol       //skip 1 row due to headers and write table body
-    // | None -> writeData startRow startCol       //write body without skipping 1 row
-
-    //let hasHeaders = if Option.isSome headers then true else false
-
-    // let tableN
-    // let tableRange =
-    //     ws.Cells.[
-    //     startRow,   //first row
-    //     startCol,   //first col
-    //     data |> Seq.length |> (+) (if hasHeaders then startRow else startRow - 1), //last row
-    //     data |> Seq.head |> Seq.length |> (+) startCol |> (+) -1] //last col: assumes no sparse data on 1º row
-    
-    // let tb = ws.Tables.Add(tableRange,tableName)
-    //tb.ShowHeader <- hasHeaders
-    
     ep.Save()
     
-
+let proces () = 
+    let (header, powiats) = loadPowiats 6
+    header |> List.ofSeq |> printfn "%A"
+    writeToFile (header, powiats)
 
 [<EntryPoint>]
 let main argv =
     let message = from "F#" // Call the function
     printfn "Hello world %s" message
-    //getGminaDryLandCharacteristics ("1001062", "Rusiec") |> ignore
-    let (header, powiats) = 
-        load() 
-        //|> Seq.take 1 
-        |> List.ofSeq 
-        |> transformPowiat
-    
-    header |> printfn "%A"
-    
-    writeToFile (header, powiats)
+    //getGminaDryLandCharacteristics 6 Set.empty ("1001062", "Rusiec") |> printfn "%A" 
+
+    proces ()
+
     0 // return an integer exit code
