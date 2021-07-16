@@ -70,22 +70,18 @@ let loadPowiats column =
         |> Seq.map (fun cs -> (cs.Attribute("value").Value(), cs.InnerText()))
         |> Seq.filter (fun (id, _) -> id <> "-")
        
-    let convertPowiat (dryHappened, powiatsSoFar) (powiatId, powiatName) =
-        let (fulFilledDryHappened, convertedGminas) = 
-            getGminasInPowiat powiatId 
-            |> Seq.fold (fun (drySoFar, convSoFar) gm ->  
-                let (newSet, gmChars) = getGminaDryLandCharacteristics column drySoFar gm
-                (newSet, gmChars :: convSoFar)) (dryHappened, [])
+    let convertPowiat (powiatId, powiatName) dryHappened =
+        let folder gm drySoFar = 
+            let (newSet, gmChars) = getGminaDryLandCharacteristics column drySoFar gm
+            (gmChars, newSet) 
+            
+        let (convertedGminas, fulFilledDryHappened) = 
+            Seq.mapFoldBack folder (getGminasInPowiat powiatId) dryHappened
     
-        (fulFilledDryHappened,
-            { 
-                id = powiatId; 
-                name = powiatName; 
-                gminas = convertedGminas |> List.rev;// |> List.sortBy (fun gm -> gm.name);
-            } :: powiatsSoFar)
+        ({ id = powiatId; name = powiatName; gminas = convertedGminas |> List.ofSeq; }, fulFilledDryHappened)
     
-    let (set, convertedPowiats)  = powiatsList |> Seq.fold convertPowiat (Set.empty, [])
-    (set, convertedPowiats |> List.rev)
+    let (convertedPowiats, populatedDryHappened)  = Seq.mapFoldBack convertPowiat powiatsList Set.empty
+    (populatedDryHappened, convertedPowiats |> List.ofSeq)
 
 let writeToFile (header: Set<string * string>, powiats: PowiatDryLandCharacteristic list) = 
     let fi = new FileInfo("./data.xlsx")
