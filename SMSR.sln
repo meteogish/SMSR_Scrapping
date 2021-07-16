@@ -3,7 +3,7 @@ Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 16
 VisualStudioVersion = 16.6.30114.105
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Scrapping", "..\src\Scrapping\Scrapping.fsproj", "{0B7B0C33-CB65-4126-AD09-01B52FB08CEA}"
+Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Scrapping", ".\src\Scrapping\Scrapping.fsproj", "{0B7B0C33-CB65-4126-AD09-01B52FB08CEA}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
