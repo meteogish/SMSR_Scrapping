@@ -24,14 +24,9 @@ type PowiatDryLandCharacteristic = {
     gminas: GminaDryLandCharacteristic list;
 }
 
-
-
-//ttps://susza.iung.pulawy.pl/wykazy/2021,1001011/
+//https://susza.iung.pulawy.pl/wykazy/2021,1001011/
 type DryLandHtml = HtmlProvider<"https://susza.iung.pulawy.pl/wykazy/2021,1001062/", ResolutionFolder=__SOURCE_DIRECTORY__>
 
-// Define a function to construct a message to print
-let from whom =
-    sprintf "from %s" whom
 
 let getGminasInPowiat powId =
     DryLandHtml.Load(sprintf "https://susza.iung.pulawy.pl/wykazy/2021,%s/" powId).Lists.Html.CssSelect "select#sel-gmina > option" 
@@ -42,32 +37,31 @@ let getGminaDryLandCharacteristics column dryLandHappened ((gminaId, gminaName))
     printfn "Getting gmina: %s, %s" gminaId gminaName
     let html = DryLandHtml.Load(sprintf "https://susza.iung.pulawy.pl/wykazy/2021,%s/" gminaId)
     
-    let convertGminaCharacteristics (set, chSoFar) (categoryName, tBody : HtmlNode) =
-        let convertRow (set, soFar) (tr: HtmlNode) =
+    let convertGminaCharacteristics (categoryName, tBody : HtmlNode) set =
+        let convertRow  (tr: HtmlNode) set =
             let tds = tr.CssSelect("td")
             let isDry = tds |> List.skip column |> List.head |> (fun h -> h.InnerText().Equals("+"))
             let char = { CropSpecies = tds.Head.InnerText(); IsDryHappened = isDry }
             
             if isDry then 
-                (set |> Set.add (categoryName, char.CropSpecies), char :: soFar)
+                (char, set |> Set.add (categoryName, char.CropSpecies))
             else 
-                (set, char :: soFar) 
+                (char, set) 
         
-        let (newSet, newChars) = tBody.CssSelect("tr") |> Seq.fold convertRow (set, [])
-        (newSet, (categoryName, newChars) :: chSoFar)
+        let (characteristics, populatedDryLandSet) = Seq.mapFoldBack convertRow (tBody.CssSelect("tr")) set
+        ((categoryName, characteristics |> List.ofSeq), populatedDryLandSet)
 
     let zipped = 
         html.Html.CssSelect("table.tab-gmina tbody")
         |> Seq.zip [ "Kategoria gleby I"; "Kategoria gleby II"; "Kategoria gleby III"; "Kategoria gleby IV" ]
 
-    let (newDryLandSet, chars) =
-        zipped |> Seq.fold convertGminaCharacteristics (dryLandHappened, [])
+    let (characteristics, populatedDryLandSet) = Seq.mapFoldBack convertGminaCharacteristics zipped dryLandHappened
        
-    (newDryLandSet, 
+    (populatedDryLandSet, 
         {
             id = gminaId;
             name = gminaName;
-            characteristics = chars |> List.rev
+            characteristics = characteristics |> List.ofSeq
         })
 
 let loadPowiats column =
@@ -148,17 +142,26 @@ let writeToFile (header: Set<string * string>, powiats: PowiatDryLandCharacteris
     writeData 3 1 rawData
     ep.Save()
     
-let proces () = 
-    let (header, powiats) = loadPowiats 6
+let generateReport column = 
+    let (header, powiats) = loadPowiats column
     header |> List.ofSeq |> printfn "%A"
     writeToFile (header, powiats)
 
+let parseColumn (argv: string array) =
+    if argv.Length > 0 then
+        let columnstr = argv.[0]
+        printfn "Columnstr: %s" columnstr
+        Int32.Parse(columnstr)
+    else
+        raise (ArgumentException("Please provide 'column' argument to the process."))
+
 [<EntryPoint>]
 let main argv =
-    let message = from "F#" // Call the function
-    printfn "Hello world %s" message
+    printfn "Hello world" 
+    printfn "%A" argv
+    let column = parseColumn argv
     //getGminaDryLandCharacteristics 6 Set.empty ("1001062", "Rusiec") |> printfn "%A" 
 
-    proces ()
+    generateReport column 
 
     0 // return an integer exit code
