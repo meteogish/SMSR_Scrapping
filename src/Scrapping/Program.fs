@@ -93,19 +93,6 @@ let loadPowiats column =
     let (set, convertedPowiats)  = powiatsList |> Seq.fold convertPowiat (Set.empty, [])
     (set, convertedPowiats |> List.rev)
 
-let transformPowiat (powiats: PowiatDryLandCharacteristic list) =
-    let folder map (powiat: PowiatDryLandCharacteristic) = 
-        let f = powiat.gminas |> Seq.collect (fun gm -> gm.characteristics |> Seq.collect (fun (cat, chs) -> chs |> Seq.filter (fun ch -> ch.IsDryHappened) |> Seq.map (fun ch -> (cat, ch.CropSpecies, ch.IsDryHappened))))
-        f |> Seq.fold (fun m (cat, crops, _) -> m |> Set.add (cat, crops)) map
-    
-    let addCategoriesWhichHappendedInAllGminas = powiats |> Seq.fold folder Set.empty
-    
-    (addCategoriesWhichHappendedInAllGminas, powiats)
-
-    //printfn "%A" t2
-    //()
-    
-
 let writeToFile (header: Set<string * string>, powiats: PowiatDryLandCharacteristic list) = 
     let fi = new FileInfo("./data.xlsx")
     use ep = new ExcelPackage(fi)
@@ -142,17 +129,23 @@ let writeToFile (header: Set<string * string>, powiats: PowiatDryLandCharacteris
         ws.Cells.[1, iC + startCol].Value <- (headVals |> snd) 
         ws.Cells.[2, iC + startCol].Value <- (headVals |> fst)) 
    
-    let r = 
+    let rawData = 
         powiats 
         |> Seq.collect (fun powiat -> 
                 let gminasData =
                     powiat.gminas 
-                    |> Seq.map (fun gm -> Seq.append [gm.name] (gm.characteristics |> Seq.collect (fun (cat, chs) -> chs |> Seq.filter (fun ch -> mapHeaer |> Map.containsKey (cat, ch.CropSpecies)) |> Seq.sortBy (fun ch -> mapHeaer |> Map.find (cat, ch.CropSpecies)) |> Seq.map (fun ch -> if ch.IsDryHappened then "+" else "-"))))
+                    |> Seq.map (fun gm -> 
+                        Seq.append [gm.name] (gm.characteristics 
+                            |> Seq.collect (fun (cat, chs) -> 
+                                chs 
+                                |> Seq.filter (fun ch -> mapHeaer |> Map.containsKey (cat, ch.CropSpecies)) 
+                                |> Seq.sortBy (fun ch -> mapHeaer |> Map.find (cat, ch.CropSpecies)) 
+                                |> Seq.map (fun ch -> if ch.IsDryHappened then "+" else "-"))))
                 
                 Seq.append gminasData [[powiat.name]]
-                )
-    r |> printfn "rawData = %A"
-    writeData 3 1 r
+        )
+    //rawData |> printfn "rawData = %A"
+    writeData 3 1 rawData
     ep.Save()
     
 let proces () = 
