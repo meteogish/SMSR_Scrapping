@@ -29,13 +29,22 @@ type DryLandHtml = HtmlProvider<"https://susza.iung.pulawy.pl/wykazy/2021,100106
 
 
 let getGminasInPowiat powId =
-    DryLandHtml.Load(sprintf "https://susza.iung.pulawy.pl/wykazy/2021,%s/" powId).Lists.Html.CssSelect "select#sel-gmina > option" 
-        |> Seq.map (fun cs -> (cs.Attribute("value").Value(), cs.InnerText()))
-        |> Seq.filter (fun (id, _) -> id <> "-")
-        
-let getGminaDryLandCharacteristics column dryLandHappened ((gminaId, gminaName)) = 
-    printfn "Getting gmina: %s, %s" gminaId gminaName
-    let html = DryLandHtml.Load(sprintf "https://susza.iung.pulawy.pl/wykazy/2021,%s/" gminaId)
+    async {
+        let! html = DryLandHtml.AsyncLoad(sprintf "https://susza.iung.pulawy.pl/wykazy/2021,%s/" powId)
+        return 
+            html.Lists.Html.CssSelect "select#sel-gmina > option" 
+            |> Seq.map (fun cs -> (cs.Attribute("value").Value(), cs.InnerText()))
+            |> Seq.filter (fun (id, _) -> id <> "-")
+    }
+
+let getGminaHtml (gminaId, gminaName) = 
+    async {
+        let! html = DryLandHtml.AsyncLoad(sprintf "https://susza.iung.pulawy.pl/wykazy/2021,%s/" gminaId)
+        return (gminaId, gminaName, html)
+    }
+
+let getGminaDryLandCharacteristics column dryLandHappened ((gminaId, gminaName, html: DryLandHtml)) = 
+    printfn "Converting gmina: %s, %s" gminaId gminaName
     
     let convertGminaCharacteristics (categoryName, tBody : HtmlNode) set =
         let convertRow  (tr: HtmlNode) set =
@@ -66,17 +75,29 @@ let getGminaDryLandCharacteristics column dryLandHappened ((gminaId, gminaName))
 
 let loadPowiats column =
     let powiatsList = 
-        DryLandHtml.Load("https://susza.iung.pulawy.pl/wykazy/2021,1014/").Lists.Html.CssSelect "select#sel-pow > option" 
-        |> Seq.map (fun cs -> (cs.Attribute("value").Value(), cs.InnerText()))
-        |> Seq.filter (fun (id, _) -> id <> "-")
+        async {
+            let! html = DryLandHtml.AsyncLoad("https://susza.iung.pulawy.pl/wykazy/2021,1014/")
+            
+            return! html.Lists.Html.CssSelect "select#sel-pow > option" 
+            |> Seq.map (fun cs -> (cs.Attribute("value").Value(), cs.InnerText()))
+            |> Seq.filter (fun (id, _) -> id <> "-")
+            |> Seq.map (fun (powId, powName) -> 
+                async { 
+                    let! gminasInPowiat = getGminasInPowiat powId
+                    let! gminasHtml = gminasInPowiat |> Seq.map getGminaHtml |> Async.Parallel
+                    return (powId, powName, gminasHtml)
+                })
+            |> Async.Parallel
+        }
+        |> Async.RunSynchronously
        
-    let convertPowiat (powiatId, powiatName) dryHappened =
+    let convertPowiat (powiatId, powiatName, gminas) dryHappened =
         let folder gm drySoFar = 
             let (newSet, gmChars) = getGminaDryLandCharacteristics column drySoFar gm
             (gmChars, newSet) 
             
         let (convertedGminas, fulFilledDryHappened) = 
-            Seq.mapFoldBack folder (getGminasInPowiat powiatId) dryHappened
+            Seq.mapFoldBack folder gminas dryHappened
     
         ({ id = powiatId; name = powiatName; gminas = convertedGminas |> List.ofSeq; }, fulFilledDryHappened)
     
