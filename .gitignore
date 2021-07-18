@@ -4,3 +4,4 @@
 **/*.xlsx
 .vs
 .ionide
+**/.DS_Store
